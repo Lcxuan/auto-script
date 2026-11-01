@@ -1,7 +1,8 @@
-"""在抽奖页面的浏览器上下文中发送一次掘金单抽请求。"""
+"""掘金幸运抽奖 - 单抽"""
 
 import json
 import sys
+import time
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -11,30 +12,38 @@ COOKIE = ""
 
 LOTTERY_PAGE = "https://juejin.cn/user/center/lottery?from=lucky_lottery_menu_bar"
 DRAW_PATH = "/growth_api/v1/lottery/draw"
+DRAW_URL = "https://api.juejin.cn/growth_api/v1/lottery/draw?aid=2608"
 
-# 在掘金页面中执行请求处理逻辑
-DRAW_SCRIPT = """async () => {
-  const url = new URL('https://api.juejin.cn/growth_api/v1/lottery/draw');
-  url.searchParams.set('aid', '2608');
-  url.searchParams.set('uuid', crypto.randomUUID());
-  url.searchParams.set('spider', '0');
-
-  const response = await fetch(url.toString(), {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    credentials: 'include',
-    body: JSON.stringify({}),
-  });
-
-  const text = await response.text();
-  let body;
+# 页内捕获异常（Failed to fetch 属于页内 TypeError），由 Python 侧重试，而不是直接抛出。
+# 每次尝试重新生成 uuid/spider 参数，与官方前端行为一致。
+DRAW_SCRIPT = """async (base) => {
   try {
-    body = JSON.parse(text);
-  } catch {
-    body = text;
+    const url = new URL(base);
+    url.searchParams.set('uuid', crypto.randomUUID());
+    url.searchParams.set('spider', '0');
+
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      credentials: 'include',
+      body: JSON.stringify({}),
+    });
+
+    const text = await response.text();
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+    return {ok: true, status: response.status, statusText: response.statusText, body};
+  } catch (error) {
+    return {ok: false, error: String(error)};
   }
-  return {status: response.status, statusText: response.statusText, body};
 }"""
+
+# 等待安全 SDK 接管 window.fetch（包装后的 fetch 不再是 [native code]）。
+SDK_READY_SCRIPT = "!String(window.fetch).includes('[native code]')"
 
 
 def mask_security_query_values(url: str) -> str:
@@ -70,6 +79,22 @@ def parse_cookies(cookie_header: str) -> list[dict[str, str]]:
     if not cookies:
         raise ValueError("COOKIE 为空或格式无法解析，请填写浏览器 Cookie 请求头")
     return cookies
+
+
+def draw_once(page, retries: int = 5, delay_ms: int = 2000) -> dict:
+    """页内发起单抽。请求必须由 sdk-glue 包装后的 fetch 发出才会携带签名。
+
+    SDK 初始化窗口内的请求会被拦截（TypeError: Failed to fetch），
+    因此这里捕获页内异常并重试，直到拿到响应。
+    """
+    for attempt in range(1, retries + 1):
+        outcome = page.evaluate(DRAW_SCRIPT, DRAW_URL)
+        if outcome.get("ok"):
+            return outcome
+        print(f"[重试 {attempt}/{retries}] 抽奖请求被安全 SDK 拦截: {outcome.get('error')}",
+              file=sys.stderr)
+        page.wait_for_timeout(delay_ms)
+    raise RuntimeError(f"抽奖请求连续 {retries} 次被安全 SDK 拦截，未获得业务响应")
 
 
 def main() -> int:
@@ -109,9 +134,13 @@ def main() -> int:
 
                 page.on("request", record_draw_request)
                 page.goto(LOTTERY_PAGE, wait_until="load", timeout=60_000)
-                # 等待页面异步加载请求和安全参数相关代码完成初始化。
-                page.wait_for_timeout(2_000)
-                result = page.evaluate(DRAW_SCRIPT)
+                # 轮询等待安全 SDK (sdk-glue.js) 接管 window.fetch，避免落在初始化窗口内
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    if page.evaluate(SDK_READY_SCRIPT):
+                        break
+                    page.wait_for_timeout(500)
+                result = draw_once(page)
             finally:
                 browser.close()
     except Exception as error:
