@@ -13,15 +13,25 @@ COOKIE = ""
 CHECKIN_URL = "https://api.juejin.cn/growth_api/v1/check_in?aid=2608&uuid=1"
 
 # 页内捕获异常（Failed to fetch 属于页内 TypeError），由 Python 侧重试，而不是直接抛出。
+# 同时加双重超时（AbortSignal 15s + 整体 race 25s），防止请求一直 pending 导致
+# page.evaluate 无限阻塞 —— evaluate 不受 Playwright 默认超时约束。
 CHECKIN_SCRIPT = """async (url) => {
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      credentials: 'include',
-      body: JSON.stringify({}),
-    });
-    return {ok: true, body: await response.json()};
+    const request = async () => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(15000),
+      });
+      return await response.json();
+    };
+    const body = await Promise.race([
+      request(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('请求超时 (25s)')), 25000)),
+    ]);
+    return {ok: true, body};
   } catch (error) {
     return {ok: false, error: String(error)};
   }
@@ -66,6 +76,18 @@ def post_checkin(page, retries: int = 5, delay_ms: int = 2000) -> dict:
     raise RuntimeError(f"签到请求连续 {retries} 次被安全 SDK 拦截，未获得业务响应")
 
 
+def close_browser(browser) -> None:
+    """直接结束浏览器进程，绝不阻塞。
+
+    掘金页面下 browser.close() 可能无限挂起（长连接/Service Worker）；
+    而 Playwright 同步 API 对象绑定主线程 greenlet，也不能放到看门狗线程里调用。
+    浏览器用的是一次性临时 profile，强杀无副作用。"""
+    try:
+        browser.process.kill()
+    except Exception:
+        pass
+
+
 def checkin() -> int:
     if not COOKIE.strip():
         print("请先在脚本顶部配置 COOKIE", file=sys.stderr)
@@ -79,21 +101,27 @@ def checkin() -> int:
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(channel="chrome", headless=True)
-            context = browser.new_context()
-            context.add_cookies([
-                {"name": morsel.key, "value": morsel.value, "domain": ".juejin.cn", "path": "/"}
-                for morsel in cookies.values()
-            ])
-            page = context.new_page()
-            # load 事件后页面主资源与安全 SDK (sdk-glue.js) 均已就绪，避免落在初始化窗口内
-            page.goto(HOME_URL, wait_until="load", timeout=30000)
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                if page.evaluate(SDK_READY_SCRIPT):
-                    break
-                page.wait_for_timeout(500)
-            result = classify_checkin_response(post_checkin(page))
-            browser.close()
+            try:
+                context = browser.new_context()
+                context.add_cookies([
+                    {"name": morsel.key, "value": morsel.value, "domain": ".juejin.cn", "path": "/"}
+                    for morsel in cookies.values()
+                ])
+                page = context.new_page()
+                # domcontentloaded 快速可靠（juejin 页面的 load 事件可能被子资源阻塞很久，
+                # 不能等它）；SDK 是否就绪由下一步轮询判定，那才是真正的就绪信号
+                print("[1/3] 打开掘金首页...", file=sys.stderr)
+                page.goto(HOME_URL, wait_until="domcontentloaded", timeout=30000)
+                print("[2/3] 等待安全 SDK (sdk-glue) 就绪...", file=sys.stderr)
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    if page.evaluate(SDK_READY_SCRIPT):
+                        break
+                    page.wait_for_timeout(500)
+                result = classify_checkin_response(post_checkin(page))
+                print("[3/3] 已获得签到响应", file=sys.stderr)
+            finally:
+                close_browser(browser)
     except Exception as error:
         print(f"签到请求未完成：{type(error).__name__}: {error}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)

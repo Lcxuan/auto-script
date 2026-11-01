@@ -16,27 +16,35 @@ DRAW_URL = "https://api.juejin.cn/growth_api/v1/lottery/draw?aid=2608"
 
 # 页内捕获异常（Failed to fetch 属于页内 TypeError），由 Python 侧重试，而不是直接抛出。
 # 每次尝试重新生成 uuid/spider 参数，与官方前端行为一致。
+# 同时加双重超时（AbortSignal 15s + 整体 race 25s），防止请求一直 pending 导致
 DRAW_SCRIPT = """async (base) => {
   try {
     const url = new URL(base);
     url.searchParams.set('uuid', crypto.randomUUID());
     url.searchParams.set('spider', '0');
 
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      credentials: 'include',
-      body: JSON.stringify({}),
-    });
+    const request = async () => {
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(15000),
+      });
+      const text = await response.text();
+      let body;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = text;
+      }
+      return {status: response.status, statusText: response.statusText, body};
+    };
 
-    const text = await response.text();
-    let body;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      body = text;
-    }
-    return {ok: true, status: response.status, statusText: response.statusText, body};
+    return await Promise.race([
+      request(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('请求超时 (25s)')), 25000)),
+    ]).then((r) => ({ok: true, ...r}));
   } catch (error) {
     return {ok: false, error: String(error)};
   }
@@ -44,7 +52,6 @@ DRAW_SCRIPT = """async (base) => {
 
 # 等待安全 SDK 接管 window.fetch（包装后的 fetch 不再是 [native code]）。
 SDK_READY_SCRIPT = "!String(window.fetch).includes('[native code]')"
-
 
 def mask_security_query_values(url: str) -> str:
     """保留有用的请求信息，同时隐藏短时有效的安全参数。"""
@@ -97,6 +104,18 @@ def draw_once(page, retries: int = 5, delay_ms: int = 2000) -> dict:
     raise RuntimeError(f"抽奖请求连续 {retries} 次被安全 SDK 拦截，未获得业务响应")
 
 
+def close_browser(browser) -> None:
+    """直接结束浏览器进程，绝不阻塞。
+
+    掘金页面下 browser.close() 可能无限挂起（长连接/Service Worker）；
+    而 Playwright 同步 API 对象绑定主线程 greenlet，也不能放到看门狗线程里调用。
+    浏览器用的是一次性临时 profile，强杀无副作用。"""
+    try:
+        browser.process.kill()
+    except Exception:
+        pass
+
+
 def main() -> int:
     if not COOKIE.strip():
         print("请先在脚本顶部填写 COOKIE。", file=sys.stderr)
@@ -133,16 +152,17 @@ def main() -> int:
                         )
 
                 page.on("request", record_draw_request)
-                page.goto(LOTTERY_PAGE, wait_until="load", timeout=60_000)
+                # domcontentloaded 快速可靠（juejin 页面的 load 事件可能被子资源阻塞很久）
+                page.goto(LOTTERY_PAGE, wait_until="domcontentloaded", timeout=60_000)
                 # 轮询等待安全 SDK (sdk-glue.js) 接管 window.fetch，避免落在初始化窗口内
-                deadline = time.monotonic() + 15
+                deadline = time.monotonic() + 30
                 while time.monotonic() < deadline:
                     if page.evaluate(SDK_READY_SCRIPT):
                         break
                     page.wait_for_timeout(500)
                 result = draw_once(page)
             finally:
-                browser.close()
+                close_browser(browser)
     except Exception as error:
         print(f"单抽请求未完成：{type(error).__name__}: {error}", file=sys.stderr)
         return 1
