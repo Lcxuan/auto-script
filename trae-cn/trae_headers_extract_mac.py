@@ -6,7 +6,7 @@
   x-device-brand ← 设备型号(如 Mac14,10,)
   x-device-type  ← 固定 "mac"
   x-os-version   ← 系统版本(如 "macOS 14.1")
-  x-app-version  ← TRAE CN 客户端版本 (1.107.1)
+  x-app-version  ← VSCode 内核版本号
   Authorization  ← JWT Token
 
 Authorization 的查找顺序：环境变量 TRAE_JWT > 解密 storage.json 取登录态真实 token > trae_token.txt

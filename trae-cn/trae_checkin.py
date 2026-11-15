@@ -33,7 +33,7 @@ X_DEVICE_ID = ""       # aha 注册的远程设备 ID
 X_DEVICE_BRAND = ""    # 设备型号(如 Mac14,10,)
 X_DEVICE_TYPE = ""     # 平台映射小写, macOS="mac", Windows="windows"
 X_OS_VERSION = ""      # 系统版本(如 "macOS 14.1")
-X_APP_VERSION = ""     # TRAE CN 客户端版本 (1.107.1)
+X_APP_VERSION = ""     # VSCode 内核版本号
 # ==============================================================
 
 BASE_URL = "https://api.trae.cn"  # 官方由 bootService 动态解析, 社区实测域名
