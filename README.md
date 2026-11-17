@@ -1,16 +1,14 @@
 # 自动化脚本
 
-本目录存放独立运行的自动化脚本，目前包含掘金和 Trae CN 相关脚本：
+本目录存放独立运行的自动化脚本，目前包含掘金、Trae CN 和 WorkBuddy 相关脚本：
 
-| 脚本                                                                           | 用途                                   | 运行方式                                         |
-| ---------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------- |
-| [`juejin/juejin_checkin.py`](juejin/juejin_checkin.py)                       | 使用已登录账号的 Cookie 执行一次掘金每日签到。          | `python juejin/juejin_checkin.py`            |
-| [`juejin/juejin_single_draw.py`](juejin/juejin_single_draw.py)               | 使用已登录账号的 Cookie 执行一次掘金抽奖，并打印请求和响应信息。 | `python juejin/juejin_single_draw.py`        |
-| [`trae-cn/trae_checkin.py`](trae-cn/trae_checkin.py)                         | 查询 Trae CN 签到状态，并在活动开启且今日未签到时领取积分。   | `python trae-cn/trae_checkin.py`             |
-| [`trae-cn/trae_headers_extract_mac.py`](trae-cn/trae_headers_extract_mac.py) | 从 macOS 上的 Trae CN 客户端提取签到所需请求头。     | `python trae-cn/trae_headers_extract_mac.py` |
-| [`trae-cn/trae_headers_extract_win.py`](trae-cn/trae_headers_extract_win.py) | 从 Windows 上的 Trae CN 客户端提取签到所需请求头。   | `python trae-cn/trae_headers_extract_win.py` |
+| 目录                             | 用途                                             | 说明                          |
+| ------------------------------ | ---------------------------------------------- | --------------------------- |
+| [`juejin/`](juejin/)           | 掘金每日签到与抽奖脚本，使用已登录账号的 Cookie 执行。                  | 配置与运行方式见 `juejin/README.md` |
+| [`trae-cn/`](trae-cn/)         | Trae CN 签到脚本，以及从 macOS / Windows 客户端提取签到所需请求头的工具。 | 配置与运行方式见 `trae-cn/README.md` |
+| [`workbuddy/`](workbuddy/)     | WorkBuddy 每日签到脚本，以及获取签到请求头、提取构建期密钥的工具。         | 配置与运行方式见 `workbuddy/README.md` |
 
-掘金脚本的配置、依赖和运行说明见 [`juejin/README.md`](juejin/README.md)；Trae CN 脚本的配置、依赖和运行说明见 [`trae-cn/README.md`](trae-cn/README.md)。
+各目录的具体脚本、配置、依赖和运行方式，见对应目录下的 README 或脚本头部说明。
 
 ## 免责声明
 
