@@ -1,12 +1,13 @@
 # 自动化脚本
 
-本目录存放独立运行的自动化脚本，目前包含掘金、Trae CN 和 WorkBuddy 相关脚本：
+本目录存放独立运行的自动化脚本，目前包含掘金、Trae CN、WorkBuddy 和 iKuuu 相关脚本：
 
 | 目录                             | 用途                                             | 说明                          |
 | ------------------------------ | ---------------------------------------------- | --------------------------- |
 | [`juejin/`](juejin/)           | 掘金每日签到与抽奖脚本，使用已登录账号的 Cookie 执行。                  | 配置与运行方式见 `juejin/README.md` |
 | [`trae-cn/`](trae-cn/)         | Trae CN 签到脚本，以及从 macOS / Windows 客户端提取签到所需请求头的工具。 | 配置与运行方式见 `trae-cn/README.md` |
 | [`workbuddy/`](workbuddy/)     | WorkBuddy 每日签到脚本，以及获取签到请求头、提取构建期密钥的工具。         | 配置与运行方式见 `workbuddy/README.md` |
+| [`ikuuu/`](ikuuu/)             | iKuuu VPN 每日签到脚本，使用已登录账号的 Cookie 执行。            | 配置与运行方式见 `ikuuu/README.md` |
 
 各目录的具体脚本、配置、依赖和运行方式，见对应目录下的 README 或脚本头部说明。
 

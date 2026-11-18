@@ -1,0 +1,6 @@
+# Python 运行产物
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
