@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """iKuuu VPN 每日签到脚本
 
 签到实现：向 https://ikuuu.top/user/checkin 发空体 POST 请求，
@@ -25,6 +26,7 @@ Cookie 最少需要 5 项：uid、email、key、expire_in、session_version。
 
 import json
 import os
+import ssl
 import sys
 import time
 import urllib.error
@@ -34,6 +36,10 @@ BASE_URL = "https://ikuuu.top"
 CHECKIN_URL = f"{BASE_URL}/user/checkin"
 
 REQUIRED_COOKIES = ("uid", "email", "key", "expire_in", "session_version")
+
+# 网络请求重试次数与退避间隔（秒），用于容忍 TLS 握手被重置等瞬时故障
+RETRY_TIMES = 3
+RETRY_DELAY_SECONDS = 2
 
 # 直接粘贴浏览器 Cookie 请求头的完整值；留空则读取下方环境变量
 COOKIE = ""
@@ -108,7 +114,7 @@ def ensure_not_expired(cookie_header: str) -> None:
         return
 
 
-def post_checkin(cookie_header: str) -> dict:
+def _post_once(cookie_header: str) -> dict:
     request = urllib.request.Request(
         CHECKIN_URL,
         data=b"",
@@ -147,6 +153,23 @@ def post_checkin(cookie_header: str) -> dict:
     return payload
 
 
+def post_checkin(cookie_header: str) -> dict:
+    """发起签到请求；TLS 握手被重置等瞬时网络故障时有限重试。"""
+    last_error = None
+    for attempt in range(1, RETRY_TIMES + 1):
+        try:
+            return _post_once(cookie_header)
+        except AuthRejected:
+            raise
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, ssl.SSLError, OSError) as error:
+            last_error = error
+            if attempt < RETRY_TIMES:
+                time.sleep(RETRY_DELAY_SECONDS * attempt)
+    raise last_error
+
+
 def main() -> int:
     try:
         cookie_header = build_cookie_header()
@@ -157,6 +180,9 @@ def main() -> int:
         return 2
     except (ValueError, urllib.error.URLError, OSError) as error:
         print(f"签到未完成：{error}", file=sys.stderr)
+        if isinstance(error, (ssl.SSLError, urllib.error.URLError)):
+            print(f"请检查运行环境能否正常访问 {BASE_URL}（代理/DNS/网络拦截均可能导致 TLS 握手失败）",
+                  file=sys.stderr)
         return 1
 
     ret = payload.get("ret")
